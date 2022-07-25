@@ -1,0 +1,134 @@
+// step 1: download Logitech LED ILLUMINATION SDK from logitech official website
+//         July 2022 website:
+//                https://www.logitechg.com/en-us/innovation/developer-lab.html?irclickid=1VaQBuw-pxyITnUT4k1WXRcyUkD1Ns0w9XhnxA0&irgwc=1&irclickid=1VaQBuw-pxyITnUT4k1WXRcyUkD3mFVYoXjUW00&irgwc=1
+//          Make sure your project can catch successfully .h files and .lib files both from logitech SDK.
+//
+// step 2: build .exe from this c++ script, then use windows task scheduler to manage your running period
+//        command line terminal(cmd):
+//                schtasks /Create /sc DAILY /ri 0 /tn mouse-Illusion-Turn-On-Turn-Off-at-night /st 20:00 /du 12:00 /tr D:\Scripts\your_executable_file_path
+//         # option for step 2: you can use c++ standard library "chrono" to set starting time or ending time:
+//                #1. in code
+//                #2. in argvs
+//
+// reminds:
+//        #1. this script use win32 api (GetLastInputInfo) to get your last device input time, so it only works in windows
+//        #2. you can change to "windows service" if you want to run it non-stop all day. 
+//            Also You should create "windows service project" in visual studio (...etc) if you would like to do so.
+//
+
+
+
+
+#define WINDOWS_LEAN_AND_MEAN
+#include <windows.h>
+#include <string.h>
+#include <sstream>   //std::to_string Function
+#include <iostream>
+
+// do something after 10 minutes of user inactivity
+static const unsigned int idle_milliseconds = 60 * 10 * 1000;
+// wait at least 10 mins between two runs (interval for two checks)
+static const unsigned int intervalForCheck = 60* 5 * 1000;
+
+
+#pragma comment(lib, "LogitechLEDLib.lib")
+#include <stdio.h>
+#include <stdlib.h>
+#include "LogitechLEDLib.h"
+#include <iostream>
+#include <winuser.h> //GetLastInputInfo Function
+using namespace std;
+
+enum mouseIdleState : int {
+    idleAnHour,
+    idleHalfHour,
+    idleTenMinutes,
+    justMoving,
+    notIdle
+};
+
+DWORD GetIdleTimeDiff();
+int checkIdleEnoughState();
+void setLedIllusionOff();
+void setLedIllusionNormal();
+
+LASTINPUTINFO last_input;  // make this var Global
+
+int main()
+{
+    last_input.cbSize = sizeof(LASTINPUTINFO);
+    last_input.dwTime = 0;
+
+    LogiLedInit();
+    bool lastStatusOn = false;
+    while (true)
+    {
+        if (checkIdleEnoughState() == mouseIdleState::notIdle)
+        {
+            if (lastStatusOn == false) {
+                setLedIllusionNormal();
+                lastStatusOn = true;
+            }
+        }
+        else {
+            if (lastStatusOn == true) {
+                setLedIllusionOff();
+                lastStatusOn = false;
+            }
+        }
+
+        Sleep(intervalForCheck);
+    }
+    //setLedIllusionNormal();
+    LogiLedShutdown();
+    return 0;
+}
+
+DWORD GetIdleTimeDiff()
+{
+    GetLastInputInfo(&last_input);
+    DWORD dwTimeDiff = GetTickCount() - last_input.dwTime;
+    //cout << GetTickCount() << endl;
+    cout << dwTimeDiff << "milliseconds" << endl;
+    
+    /*if (!GetLastInputInfo(&last_input)) {
+        std::cerr << "WinAPI failed!" << std::endl;
+        return ERROR;
+    }*/
+
+    // return idle time in millisecs
+    return dwTimeDiff;
+}
+
+int checkIdleEnoughState() {
+    DWORD timediff = GetIdleTimeDiff();
+    if (timediff < 10000) {   //10sec
+        return mouseIdleState::notIdle;
+    }
+    else if (timediff < 90000) {  //90sec
+        return mouseIdleState::justMoving;
+    }
+    else if (timediff < idle_milliseconds) {  //600sec = 10min
+        return mouseIdleState::idleTenMinutes;
+    }
+    return mouseIdleState::idleHalfHour;
+}
+
+#pragma region SetIllusionFuncs
+
+void setLedIllusion(int red, int green, int blue) {
+    LogiLedSetLighting(red, green, blue);
+    //printf("set color red=%d, green=%d, blue=%d  \n", red, green, blue);
+    //printf("Turn off all LED light  \n");
+    return;
+}
+
+void setLedIllusionOff() {
+    setLedIllusion(0, 0, 0);
+}
+
+void setLedIllusionNormal() {
+    setLedIllusion(20, 20, 20);
+}
+
+#pragma endregion
